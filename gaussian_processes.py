@@ -12,6 +12,7 @@ from typing import Callable, Tuple
 
 import numpy as np
 from scipy.spatial import distance
+from numpy.random import Generator
 
 
 def rbf_kernel(
@@ -125,8 +126,25 @@ def simulate_gp(
     #  Use np.linalg.svd
     #
 
-    <YOUR CODE HERE>
-
+    # Compute mean vector
+    mean_vector = mean_fn(t)
+    
+    # Compute kernel matrix using np.meshgrid
+    S, T = np.meshgrid(t, t, indexing='ij')
+    kernel_matrix = kernel_fn(S, T)
+    
+    # Perform SVD decomposition of kernel matrix
+    U, S, Vt = np.linalg.svd(kernel_matrix)
+    
+    # Generate standard normal samples
+    Z = np.random.randn(M, len(t))
+    
+    # Compute square root of kernel matrix using SVD
+    sqrt_K = U @ np.diag(np.sqrt(S))
+    
+    # Generate GP samples
+    X = mean_vector + (sqrt_K @ Z.T).T
+    
     return X, mean_vector, kernel_matrix
 
 
@@ -137,7 +155,7 @@ def simulate_conditional_gp(
     mean_fn: Callable[[np.ndarray], np.ndarray],
     kernel_fn: Callable[[np.ndarray], np.ndarray],
     M: int,
-) -> np.ndarray:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Simulate a Gaussian process conditined to observed values.
 
         X(t) ~ GP(mean_fn,kernel_fn)
@@ -209,10 +227,33 @@ def simulate_conditional_gp(
     """
     # NOTE Use 'multivariate_normal' from numpy with "'method = 'svd'".
     # 'svd' is slower, but numerically more robust than 'cholesky'
+    
+    # Compute mean vectors
+    mean_vector = mean_fn(t)
+    mean_obs = mean_fn(t_obs)
+    
+    # Compute kernel matrices
+    S, T = np.meshgrid(t, t, indexing='ij')
+    kernel_matrix = kernel_fn(S, T)
+    
+    S_obs, T_obs = np.meshgrid(t_obs, t_obs, indexing='ij')
+    kernel_obs = kernel_fn(S_obs, T_obs)
+    
+    S_cross, T_cross = np.meshgrid(t, t_obs, indexing='ij')
+    kernel_cross = kernel_fn(S_cross, T_cross)
+    
+    # Compute conditional mean and covariance
+    kernel_obs_inv = np.linalg.inv(kernel_obs + 1e-6 * np.eye(len(t_obs)))
+    conditional_mean = mean_vector + kernel_cross @ kernel_obs_inv @ (x_obs - mean_obs)
+    conditional_cov = kernel_matrix - kernel_cross @ kernel_obs_inv @ kernel_cross.T
+    
+    # Create an instance of Generator
+    rng = np.random.default_rng()
 
-    <YOUR CODE HERE>
-
-    return X, mean_vector, kernel_matrix
+    # Sample from the conditional distribution
+    X = rng.multivariate_normal(conditional_mean, conditional_cov, size=M, method='svd')
+    
+    return X, conditional_mean, kernel_matrix
 
 
 def gp_regression(
@@ -269,8 +310,21 @@ def gp_regression(
     # NOTE use 'np.linalg.solve' instead of inverting the matrix.
     # This procedure is numerically more robust.
 
-    <YOUR CODE HERE>
-
+    # Compute kernel matrices
+    K = kernel_fn(X, X) + sigma2_noise * np.eye(len(X))
+    K_s = kernel_fn(X, X_test)
+    K_ss = kernel_fn(X_test, X_test)
+    
+    # Solve for alpha using np.linalg.solve
+    alpha = np.linalg.solve(K, y)
+    
+    # Compute predictive mean
+    prediction_mean = K_s.T @ alpha
+    
+    # Compute predictive variance
+    v = np.linalg.solve(K, K_s)
+    prediction_variance = K_ss - K_s.T @ v
+    
     return prediction_mean, prediction_variance
 
 
